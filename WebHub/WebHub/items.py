@@ -11,3 +11,6 @@ class PornVideoItem(Item):
     video_views = Field()
     video_rating = Field()
     link_url = Field()
+    video_file_path = Field()
+    image_file_path = Field()
+    exists = Field()

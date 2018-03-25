@@ -1,22 +1,24 @@
 #coding:utf-8
-import requests
-import logging
-from scrapy.spiders import CrawlSpider
-from scrapy.selector import Selector
-from PornHub.items import PornVideoItem
-from PornHub.pornhub_type import PH_TYPES
-from scrapy.http import Request
-import re
 import json
-import random
+import logging
+import os
+import pycurl
+import re
+from hashlib import sha1
+from WebHub.items import PornVideoItem
+from WebHub.pornhub_type import PH_TYPES
+from scrapy.http import Request
+from scrapy.selector import Selector
+from scrapy.spiders import CrawlSpider
 
 
 class Spider(CrawlSpider):
     name = 'pornHubSpider'
     host = 'https://www.pornhub.com'
+    file_dir = 'E:\\pic'
     start_urls = list(set(PH_TYPES))
-    logging.getLogger("requests").setLevel(logging.WARNING
-                                          )  # 将requests的日志级别设成WARNING
+
+    logging.getLogger("requests").setLevel(logging.WARNING)
     logging.basicConfig(
         level=logging.DEBUG,
         format=
@@ -52,24 +54,60 @@ class Spider(CrawlSpider):
             yield Request(url=self.host + url_next[0],
                           callback=self.parse_ph_key)
             # self.test = False
+
     def parse_ph_info(self, response):
-        phItem = PornVideoItem()
+        ph_item = PornVideoItem()
         selector = Selector(response)
         # logging.info(selector)
         _ph_info = re.findall('var flashvars =(.*?),\n', selector.extract())
         logging.debug('PH信息的JSON:')
         logging.debug(_ph_info)
         _ph_info_json = json.loads(_ph_info[0])
-        duration = _ph_info_json.get('video_duration')
-        phItem['video_duration'] = duration
-        title = _ph_info_json.get('video_title')
-        phItem['video_title'] = title
+
         image_url = _ph_info_json.get('image_url')
-        phItem['image_url'] = image_url
+        duration = _ph_info_json.get('video_duration')
+        title = _ph_info_json.get('video_title')
         link_url = _ph_info_json.get('link_url')
-        phItem['link_url'] = link_url
         quality_480p = _ph_info_json.get('quality_480p')
-        phItem['quality_480p'] = quality_480p
-        logging.info('duration:' + duration + ' title:' + title + ' image_url:'
-                     + image_url + ' link_url:' + link_url)
-        yield phItem
+
+        ph_item['video_duration'] = duration
+        ph_item['video_title'] = title
+        ph_item['image_url'] = image_url
+        ph_item['link_url'] = link_url
+        ph_item['quality_480p'] = quality_480p
+        sha1_object = sha1()
+        sha1_object.update(quality_480p)
+        file_sha1 = sha1_object.hexdigest()
+        # 检查这个文件有没有下载过了
+        image_file_name = os.path.join(self.file_dir, file_sha1 + '.jpg')
+        mp4_file_name = os.path.join(self.file_dir, file_sha1 + '.mp4')
+        if os.path.exists(mp4_file_name):
+            ph_item['exists'] = True
+            yield ph_item
+        else:
+            ph_item['exists'] = False
+            ph_item['video_file_path'] = mp4_file_name
+            ph_item['image_file_path'] = image_file_name
+            # urllib.urlretrieve(image_url, image_file_name)
+            curl = pycurl.Curl()
+            # curl.setopt(pycurl.USERAGENT,response.headers["User-Agent"])
+            curl.setopt(pycurl.URL, image_url)
+            curl.setopt(pycurl.REFERER, response.url)
+            curl.setopt(pycurl.SSL_VERIFYPEER, 1)
+            curl.setopt(pycurl.SSL_VERIFYHOST, 2)
+            curl.setopt(pycurl.WRITEDATA, file(image_file_name, "wb"))
+            curl.perform()
+            curl.close()
+            curl2 = pycurl.Curl()
+            curl2.setopt(pycurl.URL, quality_480p)
+            curl2.setopt(pycurl.REFERER, response.url)
+            curl2.setopt(pycurl.SSL_VERIFYPEER, 1)
+            curl2.setopt(pycurl.SSL_VERIFYHOST, 2)
+            curl2.setopt(pycurl.WRITEDATA, file(mp4_file_name, "wb"))
+            curl2.perform()
+            curl2.close()
+            # urllib.urlretrieve(quality_480p, mp4_file_name)
+
+            yield ph_item
+
+
